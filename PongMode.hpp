@@ -18,20 +18,27 @@ struct PongMode : Mode {
 
 	//functions called by main loop:
 	virtual bool handle_event(SDL_Event const &, glm::uvec2 const &window_size) override;
-	virtual void update(float elapsed) override;
+	virtual void update(float in_portal) override;
 	virtual void draw(glm::uvec2 const &drawable_size) override;
 
 	//----- game state -----
 
-	glm::vec2 court_radius = glm::vec2(7.0f, 5.0f);
-	glm::vec2 paddle_radius = glm::vec2(0.2f, 1.0f);
-	glm::vec2 ball_radius = glm::vec2(0.2f, 0.2f);
+	const glm::vec2 court_radius = glm::vec2(7.0f, 5.0f);
+	const glm::vec2 paddle_radius = glm::vec2(0.2f, 1.0f);
+	const glm::vec2 ball_radius = glm::vec2(0.2f, 0.2f);
 
 	glm::vec2 left_paddle = glm::vec2(-court_radius.x + 0.5f, 0.0f);
 	glm::vec2 right_paddle = glm::vec2( court_radius.x - 0.5f, 0.0f);
 
 	glm::vec2 ball = glm::vec2(0.0f, 0.0f);
 	glm::vec2 ball_velocity = glm::vec2(-1.0f, 0.0f);
+
+	glm::vec2 portal_radius = glm::vec2(0.2f, 1.0f);
+	glm::vec2 portal_blue = glm::vec2(-3.0f, -2.0f);
+	glm::vec2 portal_red = glm::vec2(3.0f, 2.0f);
+	float portal_blue_velocity_y = 1.0f;
+	float portal_red_velocity_y = -1.0f;
+	float portal_velocity_update_remain_sec = 1.0;
 
 	uint32_t left_score = 0;
 	uint32_t right_score = 0;
@@ -42,7 +49,7 @@ struct PongMode : Mode {
 	//----- pretty rainbow trails -----
 
 	float trail_length = 1.3f;
-	std::deque< glm::vec3 > ball_trail; //stores (x,y,age), oldest elements first
+	std::deque<std::pair<glm::vec3,bool>> ball_trail; //stores ((x,y,age), teleport_performed), oldest elements first
 
 	//----- opengl assets / helpers ------
 

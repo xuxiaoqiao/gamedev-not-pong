@@ -1,8 +1,10 @@
-# (TODO: your game's title)
+# Pongtal
 
-Author: (TODO: your name)
+Author: Xiaoqiao Xu
 
-Design: (TODO: In two sentences or fewer, describe what is new and interesting about your game.)
+Design: "Portal" (teleport) mechanism is added to Pong! Two moving portals (red and blue)
+are added to the game. When the ball hit one of the portals, it's teleported to
+the other portal.
 
 Screen Shot:
 
@@ -10,6 +12,7 @@ Screen Shot:
 
 How To Play:
 
-(TODO: describe the controls and (if needed) goals/strategy.)
+Move the left paddle with the mouse. Avoid the ball hitting left border, and
+try to make it hit right border. Try to hit the ball into portals, adding more unpredictability for your opponent.
 
 This game was built with [NEST](NEST.md).

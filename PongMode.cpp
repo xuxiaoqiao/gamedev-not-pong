@@ -12,10 +12,10 @@ PongMode::PongMode() {
 
 	//set up trail as if ball has been here for 'forever':
 	ball_trail.clear();
-	ball_trail.emplace_back(ball, trail_length);
-	ball_trail.emplace_back(ball, 0.0f);
+	ball_trail.emplace_back(std::make_pair(glm::vec3(ball, trail_length), false));
+	ball_trail.emplace_back(std::make_pair(glm::vec3(ball, 0.0f), false));
 
-	
+
 	//----- allocate OpenGL resources -----
 	{ //vertex buffer:
 		glGenBuffers(1, &vertex_buffer);
@@ -158,6 +158,36 @@ void PongMode::update(float elapsed) {
 	left_paddle.y = std::max(left_paddle.y, -court_radius.y + paddle_radius.y);
 	left_paddle.y = std::min(left_paddle.y,  court_radius.y - paddle_radius.y);
 
+	//------- portal movement ------
+	portal_velocity_update_remain_sec -= elapsed;
+	if (portal_velocity_update_remain_sec <= 0.0) {
+		// update portal velocity every 0.5sec
+		portal_velocity_update_remain_sec = 0.5;
+		auto new_portal_velocity = [&](float portal_velocity) -> float {
+			float delta = (mt() / float(mt.max())) * 2.0f - 1.0f;
+			float new_portal_velocity = portal_velocity + delta;
+			new_portal_velocity = std::max<float>(new_portal_velocity, -4.0);
+			new_portal_velocity = std::min<float>(new_portal_velocity, 4.0);
+			return new_portal_velocity;
+		};
+		portal_red_velocity_y = new_portal_velocity(portal_red_velocity_y);
+		portal_blue_velocity_y = new_portal_velocity(portal_blue_velocity_y);
+	}
+	auto move_portal = [&](glm::vec2 &portal, float &velocity) {
+		portal.y += velocity * elapsed;
+		if (portal.y - portal_radius.y <= -court_radius.y) {
+			velocity = std::abs(velocity);
+			portal.y = -court_radius.y + portal_radius.y;
+		}
+		if (portal.y + portal_radius.y >= court_radius.y) {
+			velocity = -std::abs(velocity);
+			portal.y = court_radius.y - portal_radius.y;
+		}
+	};
+	move_portal(portal_red, portal_red_velocity_y);
+	move_portal(portal_blue, portal_blue_velocity_y);
+
+
 	//----- ball update -----
 
 	//speed of ball doubles every four points:
@@ -234,18 +264,39 @@ void PongMode::update(float elapsed) {
 		}
 	}
 
+	// portals:
+
+	// return true if a teleport has been performed
+	auto portal_vs_ball = [&](glm::vec2 const &in_portal, glm::vec2 const &out_portal) -> bool {
+		//compute area of overlap:
+		glm::vec2 min = glm::max(in_portal - portal_radius, ball - ball_radius);
+		glm::vec2 max = glm::min(in_portal + portal_radius, ball + ball_radius);
+
+		//if no overlap, no collision:
+		if (min.x > max.x || min.y > max.y) return false;
+		ball.y = ball.y - in_portal.y + out_portal.y;
+		if (ball.x < in_portal.x) {
+			ball.x = out_portal.x + portal_radius.x + ball_radius.x;
+		} else {
+			ball.x = out_portal.x - portal_radius.x - ball_radius.x;
+		}
+		return true;
+	};
+	// if teleport has been performed at portal_blue, then skip check for portal_red
+	bool teleport_performed = portal_vs_ball(portal_blue, portal_red) || portal_vs_ball(portal_red, portal_blue);
+
 	//----- rainbow trails -----
 
 	//age up all locations in ball trail:
 	for (auto &t : ball_trail) {
-		t.z += elapsed;
+		t.first.z += elapsed;
 	}
 	//store fresh location at back of ball trail:
-	ball_trail.emplace_back(ball, 0.0f);
+	ball_trail.emplace_back(std::make_pair(glm::vec3(ball, 0.0f), teleport_performed));
 
 	//trim any too-old locations from back of trail:
 	//NOTE: since trail drawing interpolates between points, only removes back element if second-to-back element is too old:
-	while (ball_trail.size() >= 2 && ball_trail[1].z > trail_length) {
+	while (ball_trail.size() >= 2 && ball_trail[1].first.z > trail_length) {
 		ball_trail.pop_front();
 	}
 }
@@ -255,6 +306,10 @@ void PongMode::draw(glm::uvec2 const &drawable_size) {
 	#define HEX_TO_U8VEC4( HX ) (glm::u8vec4( (HX >> 24) & 0xff, (HX >> 16) & 0xff, (HX >> 8) & 0xff, (HX) & 0xff ))
 	const glm::u8vec4 bg_color = HEX_TO_U8VEC4(0x171714ff);
 	const glm::u8vec4 fg_color = HEX_TO_U8VEC4(0xd1bb54ff);
+	const glm::u8vec4 portal_red_fg = HEX_TO_U8VEC4(0xe05b22ff);
+	const glm::u8vec4 portal_red_shadow = HEX_TO_U8VEC4(0x623529ff);
+	const glm::u8vec4 portal_blue_fg = HEX_TO_U8VEC4(0x2284e0ff);
+	const glm::u8vec4 portal_blue_shadow = HEX_TO_U8VEC4(0x254559ff);
 	const glm::u8vec4 shadow_color = HEX_TO_U8VEC4(0x604d29ff);
 	const std::vector< glm::u8vec4 > rainbow_colors = {
 		HEX_TO_U8VEC4(0x604d29ff), HEX_TO_U8VEC4(0x624f29fc), HEX_TO_U8VEC4(0x69542df2),
@@ -301,22 +356,26 @@ void PongMode::draw(glm::uvec2 const &drawable_size) {
 	draw_rectangle(left_paddle+s, paddle_radius, shadow_color);
 	draw_rectangle(right_paddle+s, paddle_radius, shadow_color);
 	draw_rectangle(ball+s, ball_radius, shadow_color);
+	draw_rectangle(portal_red+s, portal_radius, portal_red_shadow);
+	draw_rectangle(portal_blue+s, portal_radius, portal_blue_shadow);
 
 	//ball's trail:
 	if (ball_trail.size() >= 2) {
 		//start ti at second element so there is always something before it to interpolate from:
-		std::deque< glm::vec3 >::iterator ti = ball_trail.begin() + 1;
+		auto ti = ball_trail.begin() + 1;
 		//draw trail from oldest-to-newest:
 		for (uint32_t i = uint32_t(rainbow_colors.size())-1; i < rainbow_colors.size(); --i) {
 			//time at which to draw the trail element:
 			float t = (i + 1) / float(rainbow_colors.size()) * trail_length;
 			//advance ti until 'just before' t:
-			while (ti != ball_trail.end() && ti->z > t) ++ti;
+			while (ti != ball_trail.end() && ti->first.z > t) ++ti;
 			//if we ran out of tail, stop drawing:
 			if (ti == ball_trail.end()) break;
+			//skip drawing if it's in the middle of a portal teleport
+			if ((ti)->second) continue;
 			//interpolate between previous and current trail point to the correct time:
-			glm::vec3 a = *(ti-1);
-			glm::vec3 b = *(ti);
+			glm::vec3 a = (ti-1)->first;
+			glm::vec3 b = (ti)->first;
 			glm::vec2 at = (t - a.z) / (b.z - a.z) * (glm::vec2(b) - glm::vec2(a)) + glm::vec2(a);
 			//draw:
 			draw_rectangle(at, ball_radius, rainbow_colors[i]);
@@ -334,7 +393,10 @@ void PongMode::draw(glm::uvec2 const &drawable_size) {
 	//paddles:
 	draw_rectangle(left_paddle, paddle_radius, fg_color);
 	draw_rectangle(right_paddle, paddle_radius, fg_color);
-	
+
+	//portals:
+	draw_rectangle(portal_red, portal_radius, portal_red_fg);
+	draw_rectangle(portal_blue, portal_radius, portal_blue_fg);
 
 	//ball:
 	draw_rectangle(ball, ball_radius, fg_color);
@@ -432,7 +494,7 @@ void PongMode::draw(glm::uvec2 const &drawable_size) {
 
 	//reset current program to none:
 	glUseProgram(0);
-	
+
 
 	GL_ERRORS(); //PARANOIA: print errors just in case we did something wrong.
 
